@@ -4,15 +4,50 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
+	"os"
 	"time"
 
+	"github.com/go-kit/kit/log"
+	"github.com/go-kit/kit/log/level"
+
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/model"
 )
 
-func NewDeadMan(pinger <-chan time.Time, interval time.Duration, amURL string) (*Deadman, error) {
-	return newDeadMan(pinger, interval, amNotifier(amURL)), nil
+var (
+	ticksTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "deadman_ticks_total",
+			Help: "The total ticks passed in this snitch",
+		},
+	)
+
+	ticksNotified = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "deadman_ticks_notified",
+			Help: "The number of ticks where notifications were sent.",
+		},
+	)
+
+	failedNotifications = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "deadman_notifications_failed",
+			Help: "The number of failed notifications.",
+		},
+	)
+)
+
+func init() {
+	prometheus.MustRegister(
+		ticksTotal,
+		ticksNotified,
+		failedNotifications,
+	)
+}
+
+func NewDeadMan(pinger <-chan time.Time, interval time.Duration, amURL string, logger log.Logger) (*Deadman, error) {
+	return newDeadMan(pinger, interval, amNotifier(amURL), logger), nil
 }
 
 type Deadman struct {
@@ -22,9 +57,11 @@ type Deadman struct {
 	closer   chan struct{}
 
 	notifier func() error
+
+	logger log.Logger
 }
 
-func newDeadMan(pinger <-chan time.Time, interval time.Duration, notifier func() error) *Deadman {
+func newDeadMan(pinger <-chan time.Time, interval time.Duration, notifier func() error, logger log.Logger) *Deadman {
 	return &Deadman{
 		pinger:   pinger,
 		interval: interval,
@@ -41,10 +78,13 @@ func (d *Deadman) Run() error {
 	for {
 		select {
 		case <-d.ticker.C:
+			ticksTotal.Inc()
+
 			if !skip {
-				// TODO: Handle errors.
+				ticksNotified.Inc()
 				if err := d.notifier(); err != nil {
-					fmt.Println(err)
+					failedNotifications.Inc()
+					level.Error(d.logger).Log("err", err)
 				}
 			}
 			skip = false
@@ -77,7 +117,8 @@ func amNotifier(amURL string) func() error {
 
 	b, err := json.Marshal(alerts)
 	if err != nil {
-		log.Fatalln(err)
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(2)
 	}
 
 	return func() error {

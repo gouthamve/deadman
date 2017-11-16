@@ -2,25 +2,37 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/go-kit/kit/log"
+	"github.com/go-kit/kit/log/level"
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/common/model"
+	"github.com/prometheus/common/promlog"
+	promlogflag "github.com/prometheus/common/promlog/flag"
 	kingpin "gopkg.in/alecthomas/kingpin.v2"
 )
 
 func main() {
-	app := kingpin.New(filepath.Base(os.Args[0]), "A deadman's switch for Prometheus Alertmanager compatible notifications.")
+	cfg := struct {
+		amURL    string
+		interval model.Duration
+		logLevel promlog.AllowedLevel
+	}{}
+
+	app := kingpin.New(filepath.Base(os.Args[0]), "A deadman's snitch for Prometheus Alertmanager compatible notifications.")
 	app.HelpFlag.Short('h')
 
-	var amURL string
-	var interval model.Duration
-	app.Flag("am.url", "Alertmanager URL to send alerts to.").Default("http://localhost:9093/api/v1/alerts").StringVar(&amURL)
-	app.Flag("deadman.interval", "The heartbeat interval. An alert is sent if no heartbeat is sent.").Default("30s").SetValue(&interval)
+	app.Flag("am.url", "The URL to POST alerts to.").
+		Default("http://localhost:9093/api/v1/alerts").StringVar(&cfg.amURL)
+	app.Flag("deadman.interval", "The heartbeat interval. An alert is sent if no heartbeat is sent.").
+		Default("30s").SetValue(&cfg.interval)
+
+	promlogflag.AddFlags(app, &cfg.logLevel)
 
 	_, err := app.Parse(os.Args[1:])
 	if err != nil {
@@ -30,11 +42,16 @@ func main() {
 	}
 
 	pinger := make(chan time.Time)
-	go http.ListenAndServe(":9095", simpleHandler(pinger))
+	http.Handle("/metrics", promhttp.Handler())
+	http.Handle("/", simpleHandler(pinger))
+	go http.ListenAndServe(":9095", nil)
 
-	d, err := NewDeadMan(pinger, time.Duration(interval), amURL)
+	logger := promlog.New(cfg.logLevel)
+
+	d, err := NewDeadMan(pinger, time.Duration(cfg.interval), cfg.amURL, log.With(logger, "component", "deadman"))
 	if err != nil {
-		log.Fatalln(err)
+		level.Error(logger).Log("err", err)
+		os.Exit(2)
 	}
 
 	d.Run()
