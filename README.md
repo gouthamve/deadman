@@ -8,6 +8,7 @@ To install: `go get github.com/gouthamve/deadman`
 
 To run: `./deadman -h`
 
+To build Docker Image : `make docker`
 
 Add this rule to the Prometheus server to continuously generate alerts:
 ```
@@ -21,7 +22,7 @@ Add this rule to the Prometheus server to continuously generate alerts:
 
 ```
 
-And in the Alertmanager cluster, add a route to send webhook notifications to our 
+And in the Alertmanager cluster, add a route to send webhook notifications to our
 deployed deadman process.
 
 ```
