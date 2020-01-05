@@ -67,6 +67,7 @@ func newDeadMan(pinger <-chan time.Time, interval time.Duration, notifier func()
 		interval: interval,
 		notifier: notifier,
 		closer:   make(chan struct{}),
+		logger:   logger,
 	}
 }
 
