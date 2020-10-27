@@ -14,7 +14,7 @@ func TestDeadManDoesntTrigger(t *testing.T) {
 	d := newDeadMan(pinger.C, 20*time.Millisecond, func() error {
 		called = true
 		return nil
-	})
+	}, nil)
 
 	go d.Run()
 	defer d.Stop()
@@ -34,7 +34,7 @@ func TestDeadManTriggers(t *testing.T) {
 	d := newDeadMan(pinger.C, 20*time.Millisecond, func() error {
 		called = true
 		return nil
-	})
+	}, nil)
 
 	go d.Run()
 	defer d.Stop()
